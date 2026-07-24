@@ -57,7 +57,7 @@ export default function StandaloneWorkspace() {
     if (data.status === "completed" || data.status === "failed") {
       setActiveCreation(data);
       setGenerating(false);
-      fetchAppData(); // Sync creations list
+      fetchAppData(data);
     } else if (data.status === "processing") {
       setActiveCreation(data);
       setGenerating(true);
@@ -74,7 +74,7 @@ export default function StandaloneWorkspace() {
 
       setActiveCreation((prevActive) => {
         if (immediateActiveCreation) {
-          return userCreations.find(c => c.id === immediateActiveCreation.id) || immediateActiveCreation;
+          return (userCreations || []).find(c => c.id === immediateActiveCreation.id) || immediateActiveCreation;
         }
         if (userCreations && userCreations.length > 0) {
           const processing = userCreations.find(c => c.status === "processing");
@@ -87,6 +87,7 @@ export default function StandaloneWorkspace() {
             const updated = userCreations.find(c => c.id === prevActive.id);
             if (updated) return updated;
           }
+          return userCreations[0];
         }
         return null;
       });

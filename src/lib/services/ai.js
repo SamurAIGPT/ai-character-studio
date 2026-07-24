@@ -6,13 +6,16 @@ export const AIService = {
   /**
    * Submit a prediction job to MuAPI, deduct credits, and execute inline polling.
    */
-  async generate(userId, { prompt, inputImage, aspectRatio, modelEndpoint = "predictions", appId = null, creditCost = null, model = null, customParams = {} }) {
-    const cost = creditCost !== null ? Number(creditCost) : config.ai.generationCost;
+  async generate(userId, { prompt, inputImage, aspectRatio, modelEndpoint = "predictions", appId = null, creditCost = null, model = null, customParams = {}, customApiKey = null }) {
+    const isUsingCustomKey = Boolean(customApiKey && customApiKey.trim().length > 0);
+    const cost = isUsingCustomKey ? 0 : (creditCost !== null ? Number(creditCost) : config.ai.generationCost);
     
-    // 1. Deduct credits
-    await UserService.deductCredits(userId, cost);
+    // 1. Deduct credits (only if not using custom API Key)
+    if (!isUsingCustomKey && cost > 0) {
+      await UserService.deductCredits(userId, cost);
+    }
 
-    const apiKey = config.ai.apiKey;
+    const apiKey = isUsingCustomKey ? customApiKey.trim() : config.ai.apiKey;
     if (!apiKey) {
       // Return local mock generation in development if API key is missing
       console.warn("MUAPIAPP_API_KEY is not configured. Running offline simulation.");
@@ -186,7 +189,7 @@ export const AIService = {
       }
     }
 
-    return { id: creation.id, resultImage: creation.resultImage, status: creation.status };
+    return creation;
   },
 
   /**

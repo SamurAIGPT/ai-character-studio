@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AIService } from "@/lib/services/ai";
+import { standaloneConfig } from "@/lib/standaloneConfig";
 
 export async function POST(req) {
   try {
@@ -27,68 +28,82 @@ export async function POST(req) {
     let modelName = null;
 
     if (appId) {
-      const appInstance = await prisma.appInstance.findUnique({
-        where: { id: appId },
-      });
+      let parsedConfig = null;
+      let templateId = null;
 
-      if (!appInstance || appInstance.userId !== userId) {
-        return NextResponse.json({ error: "App instance not found or access denied" }, { status: 404 });
+      if (appId === standaloneConfig.appId) {
+        parsedConfig = standaloneConfig.config;
+        templateId = standaloneConfig.templateId;
+      } else {
+        const appInstance = await prisma.appInstance.findUnique({
+          where: { id: appId },
+        });
+        if (appInstance) {
+          parsedConfig = appInstance.config ? JSON.parse(appInstance.config) : {};
+          templateId = appInstance.templateId;
+        } else {
+          parsedConfig = standaloneConfig.config;
+          templateId = standaloneConfig.templateId;
+        }
       }
 
-      const parsedConfig = appInstance.config ? JSON.parse(appInstance.config) : {};
-      
-      let baseCost = 1;
-      if (parsedConfig.creditCost !== undefined) {
-        baseCost = Number(parsedConfig.creditCost);
-      }
-      creditCost = baseCost;
+      if (parsedConfig) {
+        let baseCost = 1;
+        if (parsedConfig.creditCost !== undefined) {
+          baseCost = Number(parsedConfig.creditCost);
+        }
+        creditCost = baseCost;
 
-      // Dynamic credit cost calculation
-      const userParams = parsedConfig.userParams || [];
-      if (Array.isArray(userParams)) {
-        userParams.forEach(param => {
-          let val = customParams[param.key];
-          if (val === undefined) {
-            val = param.defaultValue;
-          }
+        // Dynamic credit cost calculation
+        const userParams = parsedConfig.userParams || [];
+        if (Array.isArray(userParams)) {
+          userParams.forEach(param => {
+            let val = customParams[param.key];
+            if (val === undefined) {
+              val = param.defaultValue;
+            }
 
-          if (param.type === "enum") {
-            if (param.costModifiers && param.costModifiers[val] !== undefined) {
-              creditCost += Number(param.costModifiers[val]) || 0;
-            } else if (Array.isArray(param.costModifiers) && param.options) {
-              const optIndex = param.options.indexOf(val);
-              if (optIndex !== -1 && param.costModifiers[optIndex] !== undefined) {
-                creditCost += Number(param.costModifiers[optIndex]) || 0;
+            if (param.type === "enum") {
+              if (param.costModifiers && param.costModifiers[val] !== undefined) {
+                creditCost += Number(param.costModifiers[val]) || 0;
+              } else if (Array.isArray(param.costModifiers) && param.options) {
+                const optIndex = param.options.indexOf(val);
+                if (optIndex !== -1 && param.costModifiers[optIndex] !== undefined) {
+                  creditCost += Number(param.costModifiers[optIndex]) || 0;
+                }
+              }
+            } else if (param.type === "boolean") {
+              const isTrue = val === true || val === "true" || val === 1 || val === "1";
+              if (isTrue && param.costIfTrue !== undefined) {
+                creditCost += Number(param.costIfTrue) || 0;
+              }
+            } else if (param.type === "number" || param.type === "slider") {
+              if (param.costPerUnit !== undefined) {
+                const numVal = Number(val) || 0;
+                creditCost += numVal * (Number(param.costPerUnit) || 0);
               }
             }
-          } else if (param.type === "boolean") {
-            const isTrue = val === true || val === "true" || val === 1 || val === "1";
-            if (isTrue && param.costIfTrue !== undefined) {
-              creditCost += Number(param.costIfTrue) || 0;
-            }
-          } else if (param.type === "number" || param.type === "slider") {
-            if (param.costPerUnit !== undefined) {
-              const numVal = Number(val) || 0;
-              creditCost += numVal * (Number(param.costPerUnit) || 0);
-            }
-          }
-        });
-      }
+          });
+        }
 
-      modelName = parsedConfig.model || null;
+        modelName = parsedConfig.model || null;
 
-      // Merge system instructions/prompts
-      if (appInstance.templateId === "ai-chat") {
-        endpointToCall = parsedConfig.modelEndpoint || "chat/completions";
-      } else {
-        if (inputImage) {
-          endpointToCall = parsedConfig.editModelEndpoint || parsedConfig.modelEndpoint || "predictions";
-          modelName = parsedConfig.editModel || parsedConfig.model || null;
+        // Merge system instructions/prompts
+        if (templateId === "ai-chat") {
+          endpointToCall = parsedConfig.modelEndpoint || "chat/completions";
         } else {
-          endpointToCall = parsedConfig.modelEndpoint || "predictions";
+          if (inputImage) {
+            endpointToCall = parsedConfig.editModelEndpoint || parsedConfig.modelEndpoint || "predictions";
+            modelName = parsedConfig.editModel || parsedConfig.model || null;
+          } else {
+            endpointToCall = parsedConfig.modelEndpoint || "predictions";
+          }
         }
       }
     }
+
+    const headerApiKey = req.headers.get("x-custom-api-key");
+    const customApiKey = headerApiKey || body.customApiKey || session.user.customApiKey || null;
 
     const result = await AIService.generate(userId, {
       prompt: formattedPrompt,
@@ -99,6 +114,7 @@ export async function POST(req) {
       creditCost,
       model: modelName,
       customParams,
+      customApiKey,
     });
 
     return NextResponse.json(result);

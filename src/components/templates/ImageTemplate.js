@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { FaImage, FaMagic, FaDownload, FaExclamationTriangle, FaVideo, FaMicrophone } from "react-icons/fa";
 import { FiRefreshCw } from "react-icons/fi";
 import axios from "axios";
@@ -55,8 +56,10 @@ function CustomSelect({ value, onChange, options, placeholder = "Select option",
 }
 
 export default function ImageTemplate({ appInstance, userCredits, activeCreation, onCreationCompleted, generating: propGenerating, setGenerating: propSetGenerating }) {
+  const { data: session } = useSession();
   const parsedConfig = appInstance.config ? JSON.parse(appInstance.config) : {};
   const userParams = parsedConfig.userParams || [];
+  const isApiKeyActive = Boolean(session?.user?.customApiKey);
 
   const [prompt, setPrompt] = useState("");
   const [image, setImage] = useState(null);
@@ -78,6 +81,7 @@ export default function ImageTemplate({ appInstance, userCredits, activeCreation
 
   // Calculate dynamic credit cost in real-time
   const getDynamicCost = () => {
+    if (isApiKeyActive) return 0;
     let baseCost = parsedConfig.creditCost !== undefined ? Number(parsedConfig.creditCost) : config.ai.generationCost;
     let totalCost = baseCost;
 
@@ -501,7 +505,9 @@ export default function ImageTemplate({ appInstance, userCredits, activeCreation
               <>
                 <FaMagic className="text-xs" />
                 <span>
-                  Generate Image (Cost: {getDynamicCost()} credit{getDynamicCost() !== 1 ? "s" : ""})
+                  {isApiKeyActive
+                    ? "Generate Image (Custom API Key • 0 Credits)"
+                    : `Generate Image (Cost: ${getDynamicCost()} credit${getDynamicCost() !== 1 ? "s" : ""})`}
                 </span>
               </>
             )}
