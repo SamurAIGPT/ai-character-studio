@@ -66,6 +66,7 @@ model Creation {
   createdAt    DateTime     @default(now())
   userId       String
   requestId    String?      @unique
+  webhookTokenHash String? @unique
   status       String       @default("processing")
   error        String?      @db.Text
   appId        String?
